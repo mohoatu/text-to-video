@@ -106,3 +106,6 @@ Dưới đây là bảng phân rã công việc cụ thể cần thực hiện, 
 * [ ] **Task 5.1:** Test End-to-End với prompt tiếng Việt đầy đủ (Ví dụ: *"Kể câu chuyện Thạch Sanh Lý Thanh trong 30 giây"*).
 * [ ] **Task 5.2:** Kiểm tra xung đột phông chữ tiếng Việt (lỗi hiển thị dấu) khi FFmpeg tiến hành ghi phụ đề lên video.
 * [ ] **Task 5.3:** Viết Dockerfile tối ưu (chứa cả môi trường chạy Java và phần mềm FFmpeg), sẵn sàng đẩy lên Amazon ECS khi cần phân phối thực tế.
+
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/fa38c6ba-426e-439a-926a-b14d5b8a3c20" />
+
