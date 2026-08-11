@@ -1,6 +1,6 @@
 ### Tài Liệu Phát Triển Hệ Thống Local AI Text-to-Video Tiếng Việt
 
-**Kiến trúc:** Java Spring Boot, Spring AI, Amazon Bedrock, AWS Services & FFmpeg/ComfyUI Layer. 
+**Kiến trúc:** Java Spring Boot, Spring AI, Local LLM (Ollama/LM Studio), AWS Services & FFmpeg/ComfyUI Layer. 
 
 ### 1. Kế Hoạch Tổng Quan (Project Planning)
 
@@ -37,7 +37,7 @@ Hệ thống được thiết kế dựa trên mô hình **AI Agent Orchestratio
          ▼   ▼ (Xử lý Bất Đồng Bộ - Async Background Worker)
 [SPRING AI AGENT ORCHESTRATOR]
          │
-         ├──► (4) Gửi Prompt cấu trúc ──► [Amazon Bedrock (Claude 3.5 / Nova)]
+         ├──► (4) Gửi Prompt cấu trúc ──► [Local LLM via Ollama / LM Studio]
          │◄────────────────────────────── [Trả về JSON kịch bản chia phân cảnh]
          │
          ├──► (5) Kích hoạt Tool Calling Layer (Thực thi các Function độc lập)
@@ -58,7 +58,7 @@ Hệ thống được thiết kế dựa trên mô hình **AI Agent Orchestratio
 ### Thành Phần Chi Tiết Trong Kiến Trúc:
 
 1. **Users / Channels:** Giao diện Web/Mobile nhận yêu cầu làm video từ user (ví dụ: *"Làm video TikTok 60 giây giới thiệu về Tháp Rùa Hồ Gươm"*).
-2. **Spring AI Agent Core:** Đóng vai trò "Tổng đạo diễn". Nhận kịch bản thô, gọi LLM qua Bedrock để chia nhỏ video thành các phân cảnh (Scene 1, Scene 2 kèm text đọc và prompt vẽ tranh cụ thể).
+2. **Spring AI Agent Core:** Đóng vai trò "Tổng đạo diễn". Nhận kịch bản thô, gọi mô hình local qua Ollama/LM Studio để chia nhỏ video thành các phân cảnh (Scene 1, Scene 2 kèm text đọc và prompt vẽ tranh cụ thể).
 3. **Tool Calling Layer (Hệ thống tạo nguyên liệu):** 
 
   * *Kênh Tiếng:* Tích hợp ElevenLabs, Vbee hoặc FPT.AI API để nhận diện văn bản tiếng Việt và chuyển sang file âm thanh chất lượng cao.
@@ -72,13 +72,13 @@ Dưới đây là bảng phân rã công việc cụ thể cần thực hiện, 
 
 ### Tầng Lõi Ứng Dụng (Spring Boot Backend)
 
-* [ ] **Task 1.1:** Khởi tạo project Spring Boot (v3.x), thêm các thư viện spring-ai-bedrock-spring-boot-starter, spring-boot-starter-web, lombok.
-* [ ] **Task 1.2:** Thiết lập cấu hình kết nối AWS Authentication (Access key / IAM Role) trong file application.yml.
+* [ ] **Task 1.1:** Khởi tạo project Spring Boot (v3.x), thêm các thư viện spring-ai-ollama-spring-boot-starter, spring-boot-starter-web, lombok.
+* [ ] **Task 1.2:** Thiết lập cấu hình kết nối local LLM trong file application.yml (ví dụ: endpoint http://localhost:11434, model name qwen2.5:7b).
 * [ ] **Task 1.3:** Viết REST Controller tiếp nhận chuỗi yêu cầu prompt làm video từ giao diện người dùng.
 
-### Tầng Trí Tuệ Nhân Tạo (Spring AI & Bedrock)
+### Tầng Trí Tuệ Nhân Tạo (Spring AI & Local LLM)
 
-* [ ] **Task 2.1:** Thiết kế **System Prompt bằng tiếng Việt** chuyên biệt để ép mô hình Claude 3 / Nova luôn trả về dữ liệu có cấu trúc JSON cố định (Ví dụ: gồm mảng các phân cảnh, mỗi phân cảnh bắt buộc phải có trường voice_text và visual_prompt).
+* [ ] **Task 2.1:** Thiết kế **System Prompt bằng tiếng Việt** chuyên biệt để ép mô hình local (ví dụ: Qwen, Llama, Mistral) luôn trả về dữ liệu có cấu trúc JSON cố định (Ví dụ: gồm mảng các phân cảnh, mỗi phân cảnh bắt buộc phải có trường voice_text và visual_prompt).
 * [ ] **Task 2.2:** Viết mã Java bóc tách (Parse) dữ liệu JSON đầu ra từ LLM thành một danh sách các Object (List<Scene>) trong mã nguồn.
 
 ### Tầng Tích Hợp Công Cụ (Tool Calling Layer)
@@ -86,7 +86,7 @@ Dưới đây là bảng phân rã công việc cụ thể cần thực hiện, 
 * [ ] **Task 3.1 (Kênh Tiếng):** Viết VietnameseTTSService kết nối với API (ElevenLabs/Vbee). Kiểm thử gửi text tiếng Việt có dấu, đảm bảo tổng hợp ra file âm thanh đúng cao độ.
 * [ ] **Task 3.2 (Kênh Hình - Chọn 1 trong 2):** 
 
-  * *Phương án Cloud:* Viết client kết nối Bedrock để gọi mô hình **Amazon Nova Reel**.
+  * *Phương án Local AI:* Viết client kết nối **Ollama / LM Studio** để gọi mô hình local cho việc sinh kịch bản và prompt hình ảnh.
   * *Phương án Local Mac M1:* Thiết lập **ComfyUI / Draw Things**, bật chế độ mở port API (--listen). Viết LocalVideoGenService trong Java để gửi HTTP Request chứa prompt hình ảnh sang máy local, nhận về file video ngắn.
 * [ ] **Task 3.3 (Lưu trữ):** Cấu hình AmazonS3Client để tự động tải các file audio và video ngắn tạo ra từ các tool lên một Bucket tạm thời.
 
