@@ -1,0 +1,103 @@
+# Creator Economy Analytics SaaS + AI Video Automation
+
+## 💰 Monetization Strategy
+- **Subscription tiers**:
+  - Basic ($15/tháng): dashboard analytics + gợi ý trend.
+  - Pro ($50/tháng): tự động tạo video ngắn theo trend.
+  - Agency ($150/tháng): multi-account + API access.
+- **Freemium model**: miễn phí với chỉ số cơ bản, trả phí để unlock phân tích nâng cao.
+- **Add-on services**: báo cáo PDF tự động, API access cho developer.
+- **Marketplace revenue**: bán template video AI cho creator khác.
+- **Affiliate partnerships**: hợp tác với công cụ marketing/CRM để chia sẻ doanh thu.
+
+---
+
+## 📑 SRS (Software Requirement Specification)
+
+### Functional Requirements
+- Thu thập dữ liệu từ API (TikTok, YouTube, Instagram, Shopee…).
+- Dashboard hiển thị các KPI: follower growth, engagement rate, CTR, retention.
+- Xuất báo cáo (PDF/CSV).
+- Gợi ý thời điểm đăng bài tối ưu.
+- Quản lý nhiều tài khoản creator.
+- Tự động generate video ngắn (AI text-to-video, image-to-video).
+- Xuất video kèm caption/hashtag gợi ý.
+- Scheduler để tự động đăng video lên TikTok/YouTube.
+
+### Non-functional Requirements
+- **Scalability**: hỗ trợ hàng nghìn user mà không cần đội ngũ lớn.
+- **Security**: OAuth2 cho login, mã hóa dữ liệu.
+- **Performance**: dashboard load < 2s, video tạo < 1 phút.
+- **Availability**: uptime > 99%.
+
+---
+
+## ⚙️ Technical Design
+
+- **Frontend**: React/Next.js (UI dashboard).
+- **Backend**: Node.js/Express hoặc Python/FastAPI.
+- **Database**: PostgreSQL (user data, analytics), Redis (cache).
+- **Data pipeline**: cron jobs gọi API, lưu dữ liệu, xử lý bằng worker queue (Celery/BullMQ).
+- **Video AI Engine**:
+  - Text-to-video (Runway, Pika, OpenAI video models).
+  - Image-to-video (ảnh + template → video).
+  - Caption generator (LLM).
+- **Storage**: S3 cho video, CDN để phân phối nhanh.
+- **Auth**: OAuth2 + JWT.
+- **Hosting**: serverless (AWS Lambda, Vercel) + GPU cloud (Lambda Labs, RunPod).
+- **Monitoring**: Sentry, Grafana.
+
+---
+
+## 📊 Business Model Canvas
+
+| Thành phần | Nội dung |
+|------------|----------|
+| **Customer Segments** | Creator nhỏ, freelancer, agency marketing |
+| **Value Proposition** | Phân tích trend + tự động tạo video ngắn |
+| **Channels** | Website SaaS, cộng đồng Reddit/IndieHackers, quảng cáo niche |
+| **Customer Relationships** | Self-service, support qua chatbot |
+| **Revenue Streams** | Subscription, add-on video, marketplace template |
+| **Key Resources** | AI engine, API integration, cloud GPU |
+| **Key Activities** | Thu thập trend, phân tích, tạo video, xuất bản |
+| **Key Partners** | TikTok/YouTube API, AI video API providers |
+| **Cost Structure** | GPU cloud, API quota, marketing, support |
+
+---
+
+## 🚀 Roadmap 6 tháng
+
+- **Tháng 1–2**: Build MVP (dashboard + trend analytics).
+- **Tháng 3–4**: Tích hợp AI video generator (text-to-video).
+- **Tháng 5**: Thêm auto-caption + hashtag suggestion.
+- **Tháng 6**: Triển khai auto-publish + gói subscription Pro.
+
+---
+
+## 🎯 Creator Economy Analytics
+
+### Các hướng đi khả thi
+- TikTok/Instagram Analytics cho micro-influencer.
+- YouTube Video Performance Tool.
+- Newsletter Analytics.
+- Podcast Analytics.
+- E-commerce Seller Dashboard (Shopee, Etsy).
+
+---
+
+## 🏗️ System Architecture Diagram
+
+```mermaid
+flowchart TD
+    User[Người dùng Creator] -->|Login OAuth2| Frontend[Frontend (React/Next.js)]
+    Frontend --> Backend[Backend (Node.js/FastAPI)]
+    Backend --> DB[(PostgreSQL)]
+    Backend --> Cache[(Redis)]
+    Backend --> API[Social Media APIs (TikTok, YouTube, Instagram)]
+    Backend --> Worker[Worker Queue (Celery/BullMQ)]
+    Worker --> AIEngine[AI Video Engine (Text-to-Video, Caption Generator)]
+    AIEngine --> Storage[(S3/Cloud Storage)]
+    Storage --> CDN[CDN Distribution]
+    Backend --> Dashboard[Analytics Dashboard]
+    Dashboard --> User
+    Monitoring[Monitoring (Sentry/Grafana)] --> Backend
