@@ -89,17 +89,70 @@
 
 ```mermaid
 flowchart TD
-    User[Người dùng Creator] -->|Login OAuth2| Frontend[Frontend (React/Next.js)]
-    Frontend --> Backend[Backend (Node.js/FastAPI)]
-    Backend --> DB[(PostgreSQL)]
-    Backend --> Cache[(Redis)]
-    Backend --> API[Social Media APIs (TikTok, YouTube, Instagram)]
-    Backend --> Worker[Worker Queue (Celery/BullMQ)]
-    Worker --> AIEngine[AI Video Engine (Text-to-Video, Caption Generator)]
-    AIEngine --> Storage[(S3/Cloud Storage)]
-    Storage --> CDN[CDN Distribution]
-    Backend --> Dashboard[Analytics Dashboard]
-    Dashboard --> User
-    Monitoring[Monitoring (Sentry/Grafana)] --> Backend
+  subgraph UX [Users & Clients]
+    User[Người dùng Creator]
+    Mobile[Mobile App / Creator Studio]
+    User --> Mobile
+    User --> Web[Web Dashboard (Next.js)]
+  end
+
+  subgraph FrontendServices [Frontend & Auth]
+    Web -->|OAuth2 / JWT| Auth[Auth Service (OAuth2/JWT)]
+    Mobile -->|OAuth2 / JWT| Auth
+  end
+
+  subgraph API [API Layer]
+    Web -->|HTTPS| API[Backend API (Node/FastAPI)]
+    Mobile -->|HTTPS| API
+    Auth -->|Validate Token| API
+  end
+
+  subgraph Ingestion [Data Ingestion]
+    Scheduler[Cron / Scheduler] -->|poll/webhook| Ingest[Ingest Service]
+    API -->|user actions| Ingest
+    Ingest -->|push| Queue[(Worker Queue - BullMQ / Celery)]
+    ExternalAPIs[Social APIs\n(TikTok/YouTube/IG/Shopee)] -->|webhook/call| Ingest
+  end
+
+  subgraph Processing [Background Processing]
+    Queue --> Worker[Workers]
+    Worker -->|analytics jobs| Analytics[Analytics Service]
+    Worker -->|generate video| AIEngine[AI Video Engine (GPU Cluster)]
+    AIEngine -->|store| ObjectStore[(S3 / Object Storage)]
+    Analytics -->|write| DB[(PostgreSQL)]
+    Analytics -->|cache| Cache[(Redis)]
+  end
+
+  subgraph MediaDelivery [Storage & Delivery]
+    ObjectStore --> CDN[CDN]
+    CDN -->|stream| Web
+    CDN -->|stream| Mobile
+  end
+
+  subgraph Integrations [Publishing & Marketplace]
+    AutoPublisher[Auto-publish Service] -->|POST| ExternalAPIs
+    API -->|enqueue publish| AutoPublisher
+    Marketplace[Template Marketplace] --> ObjectStore
+  end
+
+  subgraph Observability [Monitoring & Ops]
+    Logs[Logging / Tracing] -->|alerts| Monitoring[Sentry / Grafana]
+    API --> Logs
+    Worker --> Logs
+    AIEngine --> Logs
+    ObjectStore --> Metrics[Metrics Exporter]
+    Metrics --> Monitoring
+  end
+
+  %% cross connections
+  API -->|reads| DB
+  API -->|reads| Cache
+  Web -->|requests| CDN
+  Scheduler -->|triggers| AutoPublisher
+  Worker --> ObjectStore
+  AIEngine -->|reads models| ModelRepo[(Model Registry / Weights Storage)]
+  ModelRepo --> AIEngine
+
+  click ExternalAPIs "https://developers.google.com/youtube"
 
 ```
