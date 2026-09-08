@@ -90,5 +90,91 @@ These are called out in `docs/architecture-decision.md` / `docs/technical-soluti
 Phase 2/3 (optimization, commercialization) or cloud-hosted concerns, not part of the 12 prompts:
 - Amazon SQS / S3 / DynamoDB integration (local queue + local storage stand in for the MVP)
 - User authentication, billing/credits, hosted rendering, partner API access
-- A real ComfyUI workflow graph (current integration establishes connectivity and falls back
-  to a placeholder image — a working node graph is deployment-specific)
+
+## Running the full local stack (real profile)
+
+Everything below runs entirely on-machine — no cloud AI provider required. Confirmed working
+end-to-end on an M1 Pro / 32GB Mac: real Ollama scene planning, real Piper Vietnamese TTS, and
+real ffmpeg subtitle burn-in all verified against actual `POST /api/jobs` runs.
+
+### 1. LLM — Ollama (scene planning)
+```bash
+brew install ollama          # brew services starts it automatically
+ollama pull qwen2.5:14b      # ~9GB; qwen2.5:7b also works, lower quality/faster
+```
+`OllamaClient` uses Ollama's structured-outputs feature (a JSON Schema passed as the `format`
+field, not just `"format": "json"`) to reliably force an array of scenes — the plain `"json"`
+format let the model return a single object instead of an array often enough to matter.
+
+### 2. TTS — piper-tts (Vietnamese narration)
+The prebuilt `piper` binary release (`piper_macos_aarch64.tar.gz`, tag `2023.11.14-2`) is missing
+its bundled shared libraries on macOS and will not run. Use the `piper-tts` PyPI package instead:
+```bash
+brew install python@3.12
+python3.12 -m venv ~/videogen-local-stack/piper-venv
+source ~/videogen-local-stack/piper-venv/bin/activate && pip install piper-tts
+
+# wrapper so PiperTtsService's plain `piper` ProcessBuilder call keeps working:
+cat > /opt/homebrew/bin/piper <<'EOF'
+#!/bin/bash
+exec "$HOME/videogen-local-stack/piper-venv/bin/piper" "$@"
+EOF
+chmod +x /opt/homebrew/bin/piper
+```
+Vietnamese voice (best available quality — `medium`; `low` variants also exist):
+```bash
+mkdir -p app/videogen/models/piper && cd app/videogen/models/piper
+curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx
+curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx.json
+```
+(`app/videogen/models/` is gitignored — not committed, fetch it per-machine.)
+
+### 3. ffmpeg — full build with subtitle support
+Homebrew's default `ffmpeg` formula is built **without `libass`/`libfreetype`**, so the
+`subtitles` filter used by `FfmpegVideoAssemblyService` doesn't exist and burn-in fails with a
+confusing `No option name near '...srt'` parse error (not "unknown filter" — worth knowing when
+debugging). Fix:
+```bash
+brew uninstall ffmpeg
+brew tap homebrew-ffmpeg/ffmpeg
+brew install homebrew-ffmpeg/ffmpeg/ffmpeg   # may compile from source (~a few min) if no bottle
+                                              # exists yet for your macOS version
+ffmpeg -filters | grep -i subtitle           # sanity check: should list `subtitles` and `ass`
+```
+
+### 4. Visual/video generation — ComfyUI + AnimateDiff (optional)
+The MVP falls back to a placeholder still image per scene (`videogen.visual.enabled=false`) and
+works fully without this. To get real generated motion instead:
+```bash
+git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git ~/videogen-local-stack/ComfyUI
+git clone --depth 1 https://github.com/ArtVentureX/comfyui-animatediff.git \
+  ~/videogen-local-stack/ComfyUI/custom_nodes/comfyui-animatediff
+
+python3.12 -m venv ~/videogen-local-stack/ComfyUI/venv
+source ~/videogen-local-stack/ComfyUI/venv/bin/activate
+pip install torch torchvision torchaudio   # MPS-accelerated build on Apple Silicon, confirmed
+pip install -r ~/videogen-local-stack/ComfyUI/requirements.txt
+pip install opencv-python                  # comfyui-animatediff's own requirement
+
+mkdir -p ~/videogen-local-stack/ComfyUI/models/checkpoints
+curl -L -o ~/videogen-local-stack/ComfyUI/models/checkpoints/v1-5-pruned-emaonly.safetensors \
+  https://huggingface.co/Comfy-Org/stable-diffusion-v1-5-archive/resolve/main/v1-5-pruned-emaonly.safetensors
+curl -L -o ~/videogen-local-stack/ComfyUI/custom_nodes/comfyui-animatediff/models/mm_sd_v15_v2.ckpt \
+  https://huggingface.co/guoyww/animatediff/resolve/main/mm_sd_v15_v2.ckpt
+
+# start it:
+~/videogen-local-stack/ComfyUI/venv/bin/python ~/videogen-local-stack/ComfyUI/main.py --listen 127.0.0.1
+```
+Then set `videogen.visual.enabled=true` in `application.properties`. Note: `ComfyUiVisualGenerationService`
+still only *establishes connectivity* to ComfyUI as of this writing — it does not yet submit the
+AnimateDiff workflow graph itself (see the code comment in `callComfyUi()`); wiring the actual
+API-format workflow (checkpoint → CLIPTextEncode → AnimateDiffSampler → AnimateDiffCombine as
+GIF, which `FfmpegVideoAssemblyService` would then need to accept as a scene visual alongside
+still images) is the remaining piece to get real generated video instead of the placeholder.
+
+### Gotcha: this connection was heavily bandwidth-constrained
+Hugging Face downloads repeatedly stalled/dropped over HTTP/2 (`curl: (92) HTTP/2 stream ... was
+not closed cleanly`). If a large model download fails partway, resume rather than restart:
+```bash
+curl -L -C - --retry 10 --retry-delay 5 --http1.1 -o <file> <url>
+```

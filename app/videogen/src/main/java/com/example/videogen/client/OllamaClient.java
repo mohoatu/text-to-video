@@ -42,12 +42,24 @@ public class OllamaClient {
      * JSON-formatted output. Returns the raw "response" text produced by the model.
      */
     public String generate(String systemPrompt, String userPrompt) {
+        return generate(systemPrompt, userPrompt, "json");
+    }
+
+    /**
+     * Same as {@link #generate(String, String)} but with a JSON Schema passed as
+     * the "format" field, which Ollama's structured-outputs support uses to
+     * constrain the response shape (e.g. "must be a non-empty array of objects
+     * with these fields"). This is materially more reliable than instructing
+     * the model in prose to "return a JSON array" — the bare "json" format
+     * still lets the model return a single object instead of an array.
+     */
+    public String generate(String systemPrompt, String userPrompt, Object formatSchema) {
         Map<String, Object> body = Map.of(
                 "model", properties.getOllamaModel(),
                 "system", systemPrompt,
                 "prompt", userPrompt,
                 "stream", false,
-                "format", "json"
+                "format", formatSchema
         );
 
         String rawResponse = restClient.post()

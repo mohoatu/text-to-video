@@ -2,6 +2,7 @@ package com.example.videogen.service.planning;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.context.annotation.Profile;
@@ -22,16 +23,32 @@ public class OllamaScenePlanningService implements ScenePlanningService {
 
     private static final String SYSTEM_PROMPT = """
             Bạn là một đạo diễn kịch bản video ngắn tiếng Việt.
-            Nhiệm vụ: chia nội dung người dùng cung cấp thành các phân cảnh (scene) ngắn.
-            Chỉ trả lời bằng một JSON array hợp lệ, không thêm giải thích, không thêm markdown.
-            Mỗi phần tử trong array phải có đúng các trường sau:
-            - sceneIndex (số nguyên, bắt đầu từ 0)
-            - narrationText (chuỗi tiếng Việt, lời đọc cho phân cảnh)
-            - visualPrompt (chuỗi tiếng Việt, mô tả hình ảnh minh họa cho phân cảnh)
-            - durationHint (số giây ước tính, kiểu số)
-            Ví dụ định dạng:
-            [{"sceneIndex":0,"narrationText":"...","visualPrompt":"...","durationHint":5}]
+            Nhiệm vụ: chia nội dung người dùng cung cấp thành 3 đến 6 phân cảnh (scene) ngắn,
+            mỗi phân cảnh có lời đọc (narrationText) tự nhiên, đúng ngữ pháp tiếng Việt,
+            và mô tả hình ảnh minh họa (visualPrompt) bằng tiếng Việt cho phân cảnh đó.
+            Ước tính thời lượng đọc (durationHint) tính bằng giây cho mỗi phân cảnh.
             """;
+
+    /**
+     * JSON Schema passed as Ollama's structured-outputs "format" field. This is
+     * materially more reliable than instructing the model in prose to "return a
+     * JSON array" — with the bare "json" format the model sometimes returns a
+     * single object instead of an array of scenes.
+     */
+    private static final Object SCENES_SCHEMA = Map.of(
+            "type", "array",
+            "minItems", 1,
+            "items", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                            "sceneIndex", Map.of("type", "integer"),
+                            "narrationText", Map.of("type", "string"),
+                            "visualPrompt", Map.of("type", "string"),
+                            "durationHint", Map.of("type", "number")
+                    ),
+                    "required", List.of("sceneIndex", "narrationText", "visualPrompt", "durationHint")
+            )
+    );
 
     private final OllamaClient ollamaClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -44,7 +61,7 @@ public class OllamaScenePlanningService implements ScenePlanningService {
     public List<Scene> plan(Job job) {
         String rawJson;
         try {
-            rawJson = ollamaClient.generate(SYSTEM_PROMPT, job.getPrompt());
+            rawJson = ollamaClient.generate(SYSTEM_PROMPT, job.getPrompt(), SCENES_SCHEMA);
         } catch (Exception e) {
             throw new PipelineStageException(STAGE, "Failed to reach local LLM (Ollama): " + e.getMessage(), e);
         }
@@ -75,12 +92,11 @@ public class OllamaScenePlanningService implements ScenePlanningService {
                 throw new PipelineStageException(STAGE, "Scene " + index + " is missing visualPrompt");
             }
             Double durationHint = node.hasNonNull("durationHint") ? node.get("durationHint").asDouble() : null;
-            int sceneIndex = node.hasNonNull("sceneIndex") ? node.get("sceneIndex").asInt() : index;
 
             scenes.add(Scene.builder()
                     .id(UUID.randomUUID().toString())
                     .jobId(jobId)
-                    .sceneIndex(sceneIndex)
+                    .sceneIndex(index)
                     .narrationText(narrationText)
                     .visualPrompt(visualPrompt)
                     .durationHint(durationHint)
