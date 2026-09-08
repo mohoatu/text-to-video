@@ -1,0 +1,11 @@
+target/
+*.class
+*.log
+.DS_Store
+.idea/
+*.iml
+.vscode/
+
+# Runtime pipeline output/work directories (videogen)
+app/videogen/data/
+app/videogen/data-stub/
