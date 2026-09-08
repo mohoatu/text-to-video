@@ -1,0 +1,156 @@
+package com.example.videogen.service.assembly;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Service;
+
+import com.example.videogen.config.VideogenProperties;
+import com.example.videogen.model.GenerationResult;
+import com.example.videogen.model.Job;
+import com.example.videogen.model.Scene;
+import com.example.videogen.util.DurationEstimator;
+
+/**
+ * Builds the final MP4 using the ffmpeg CLI:
+ * 1) turn each scene's still image + narration audio into a fixed-duration segment,
+ * 2) concatenate the segments in scene order,
+ * 3) burn the SRT subtitle file into the concatenated video.
+ * Requires the ffmpeg binary to be installed and on PATH (or configured explicitly).
+ */
+@Service
+@Profile("!stub")
+public class FfmpegVideoAssemblyService implements VideoAssemblyService {
+
+    private final VideogenProperties.Assembly properties;
+
+    public FfmpegVideoAssemblyService(VideogenProperties properties) {
+        this.properties = properties.getAssembly();
+    }
+
+    @Override
+    public GenerationResult assemble(Job job, List<Scene> scenes, String subtitlePath) {
+        try {
+            Path workDir = Path.of(properties.getWorkDir());
+            Files.createDirectories(workDir);
+
+            List<Path> segments = new ArrayList<>();
+            for (Scene scene : scenes) {
+                segments.add(buildSceneSegment(job, workDir, scene));
+            }
+
+            Path concatenated = concatenateSegments(job, workDir, segments);
+            Path finalOutput = burnSubtitles(job, workDir, concatenated, subtitlePath);
+
+            return GenerationResult.ok(finalOutput.toString(), Map.of("engine", "ffmpeg", "sceneCount", scenes.size()));
+        } catch (AssemblyStepException e) {
+            return GenerationResult.failure(e.getMessage());
+        } catch (IOException e) {
+            return GenerationResult.failure("Failed to prepare assembly work directory: " + e.getMessage());
+        }
+    }
+
+    private Path buildSceneSegment(Job job, Path workDir, Scene scene) throws AssemblyStepException {
+        Path segmentFile = workDir.resolve(job.getId() + "-segment-" + scene.getSceneIndex() + ".mp4");
+        double duration = scene.getDurationHint() != null && scene.getDurationHint() > 0
+                ? scene.getDurationHint()
+                : DurationEstimator.estimateSeconds(scene.getNarrationText());
+
+        List<String> command = List.of(
+                properties.getFfmpegExecutable(), "-y",
+                "-loop", "1", "-i", scene.getVisualFilePath(),
+                "-i", scene.getAudioFilePath(),
+                "-t", String.valueOf(duration),
+                "-pix_fmt", "yuv420p",
+                "-vf", "scale=1280:720",
+                "-c:v", "libx264",
+                "-c:a", "aac",
+                "-shortest",
+                segmentFile.toString());
+
+        run(command, "assembly", "build segment for scene " + scene.getSceneIndex());
+        return segmentFile;
+    }
+
+    private Path concatenateSegments(Job job, Path workDir, List<Path> segments) throws AssemblyStepException {
+        Path listFile = workDir.resolve(job.getId() + "-concat.txt");
+        try {
+            StringBuilder sb = new StringBuilder();
+            for (Path segment : segments) {
+                sb.append("file '").append(segment.toAbsolutePath()).append("'\n");
+            }
+            Files.writeString(listFile, sb.toString(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new AssemblyStepException("Failed to write ffmpeg concat list: " + e.getMessage());
+        }
+
+        Path concatenated = workDir.resolve(job.getId() + "-concatenated.mp4");
+        List<String> command = List.of(
+                properties.getFfmpegExecutable(), "-y",
+                "-f", "concat", "-safe", "0",
+                "-i", listFile.toString(),
+                "-c", "copy",
+                concatenated.toString());
+
+        run(command, "assembly", "concatenate scene segments");
+        return concatenated;
+    }
+
+    private Path burnSubtitles(Job job, Path workDir, Path concatenated, String subtitlePath) throws AssemblyStepException {
+        Path finalOutput = workDir.resolve(job.getId() + "-final.mp4");
+        String escapedSubtitlePath = subtitlePath.replace("\\", "/").replace(":", "\\:");
+
+        List<String> command = List.of(
+                properties.getFfmpegExecutable(), "-y",
+                "-i", concatenated.toString(),
+                "-vf", "subtitles='" + escapedSubtitlePath + "'",
+                "-c:a", "copy",
+                finalOutput.toString());
+
+        run(command, "assembly", "burn subtitles into final video");
+        return finalOutput;
+    }
+
+    private void run(List<String> command, String stage, String description) throws AssemblyStepException {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            boolean finished = process.waitFor(300, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new AssemblyStepException("ffmpeg timed out while trying to " + description);
+            }
+            if (process.exitValue() != 0) {
+                throw new AssemblyStepException("ffmpeg failed to " + description + " (exit=" + process.exitValue()
+                        + "): " + lastLines(output, 20));
+            }
+        } catch (IOException e) {
+            throw new AssemblyStepException("ffmpeg executable not found or failed to start while trying to "
+                    + description + ": " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssemblyStepException("ffmpeg was interrupted while trying to " + description);
+        }
+    }
+
+    private static String lastLines(String text, int maxLines) {
+        String[] lines = text.split("\n");
+        int start = Math.max(0, lines.length - maxLines);
+        return String.join("\n", java.util.Arrays.copyOfRange(lines, start, lines.length));
+    }
+
+    private static class AssemblyStepException extends Exception {
+        AssemblyStepException(String message) {
+            super(message);
+        }
+    }
+}
