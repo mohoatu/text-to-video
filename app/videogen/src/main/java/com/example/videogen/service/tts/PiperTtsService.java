@@ -44,6 +44,7 @@ public class PiperTtsService implements TextToSpeechService {
             ProcessBuilder pb = new ProcessBuilder(
                     properties.getPiperExecutable(),
                     "--model", properties.getPiperModel(),
+                    "--length-scale", String.valueOf(properties.getLengthScale()),
                     "--output_file", outputFile.toString());
             pb.redirectErrorStream(true);
             Process process = pb.start();

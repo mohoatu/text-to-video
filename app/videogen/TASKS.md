@@ -168,9 +168,11 @@ Then set `videogen.visual.enabled=true` in `application.properties`.
 `ComfyUiVisualGenerationService` submits a standard SD1.5 txt2img workflow (`CheckpointLoaderSimple
 -> CLIPTextEncode -> KSampler -> VAEDecode -> SaveImage`; **no custom nodes needed**), polls
 `/history/{promptId}`, and downloads the resulting PNG via `/view`. The scene's `visualPrompt` is
-wrapped with `videogen.visual.style-prefix` ("simple flat cartoon illustration, children's
-storybook art style, clean bold outlines, flat colors, minimalist background" by default) so
-output stays a simple comic/storybook illustration rather than attempting photorealism. Takes
+wrapped with `videogen.visual.style-prefix` (default: an anime/manga illustration style — "like
+Naruto or Dragon Ball Z, cel shaded, bold ink outlines, vibrant anime colors" — the base SD1.5
+checkpoint handles this surprisingly well with no dedicated anime checkpoint needed; swap the
+prefix for something like "simple flat cartoon illustration, children's storybook art style" for
+a softer look instead) so output stays illustrative rather than attempting photorealism. Takes
 ~30s/scene on M1 Pro MPS.
 
 **An earlier version of this used ComfyUI's AnimateDiff custom node for real generated motion
@@ -189,6 +191,29 @@ prompt now explicitly instructs the model to write `visualPrompt` in concise, co
 (narrationText stays Vietnamese) — this alone fixed most of the content-mismatch problem. The
 placeholder-fallback caption (`PlaceholderAssetGenerator`) uses `narrationText`, not `visualPrompt`,
 so it still displays Vietnamese.
+
+### 5. Pacing: narration speed, scene timing, and the ending
+- **Narration speed**: `videogen.tts.length-scale` is piper's `--length-scale` (1.0 = the voice's
+  natural pace; 1.15 default here = ~15% slower, generally easier to follow for Vietnamese).
+- **Scene timing**: the LLM's `durationHint` is only a starting guess. After TTS, each scene's
+  duration is corrected to the *actual* synthesized audio length (via `MediaDurationProbe`, which
+  shells out to `ffprobe`) plus `videogen.assembly.scene-padding-seconds` (0.4s breathing room),
+  floored at `videogen.assembly.min-scene-seconds` (1.5s). This also fixed a latent bug: the
+  per-scene ffmpeg command used to pass `-shortest`, which — combined with an LLM duration guess
+  that was almost always longer than the real (now slower) audio — cut each scene's visual short
+  the moment narration ended rather than holding it for the intended duration. `-shortest` was
+  removed; `-t <corrected duration>` is now the sole authority on segment length, so narration
+  always finishes playing and the image holds for the configured padding after.
+- **Ending**: `videogen.outro.*` appends a fixed scene (default narration "Hết.") after planning,
+  which runs through the normal pipeline like any other scene, plus `VideogenOrchestrator` applies
+  a `fade=t=out`/`afade=t=out` over the last `videogen.outro.fade-out-seconds` (1.0s default) of
+  the whole assembled video in `FfmpegVideoAssemblyService.finalizeVideo()`, so nothing just cuts
+  off abruptly.
+- **Gotcha**: don't put non-ASCII (Vietnamese) text directly in `application.properties` — unlike
+  YAML, Spring Boot's `.properties` loader reads with `ISO-8859-1` by default, so `Hết.` written
+  there came through as mojibake (`Háº¿t.`) at runtime. Put Vietnamese defaults in Java source
+  (compiled as UTF-8) instead, as `VideogenProperties.Outro.narrationText`'s default does, or move
+  the file to `application.yml` if it ever needs to be a property override.
 
 ### Gotcha: this connection was heavily bandwidth-constrained
 Hugging Face downloads repeatedly stalled/dropped over HTTP/2 (`curl: (92) HTTP/2 stream ... was

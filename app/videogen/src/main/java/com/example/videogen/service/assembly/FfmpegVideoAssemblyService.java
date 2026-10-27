@@ -24,7 +24,9 @@ import com.example.videogen.util.DurationEstimator;
  *    ComfyUI/AnimateDiff, looped as needed) + narration audio into a
  *    fixed-duration segment,
  * 2) concatenate the segments in scene order,
- * 3) burn the SRT subtitle file into the concatenated video.
+ * 3) burn the SRT subtitle file into the concatenated video and fade
+ *    video+audio to black over the last few seconds, so the ending is
+ *    deliberate rather than an abrupt cut.
  * Requires the ffmpeg binary to be installed and on PATH (or configured explicitly).
  */
 @Service
@@ -32,9 +34,11 @@ import com.example.videogen.util.DurationEstimator;
 public class FfmpegVideoAssemblyService implements VideoAssemblyService {
 
     private final VideogenProperties.Assembly properties;
+    private final double fadeOutSeconds;
 
     public FfmpegVideoAssemblyService(VideogenProperties properties) {
         this.properties = properties.getAssembly();
+        this.fadeOutSeconds = properties.getOutro().getFadeOutSeconds();
     }
 
     @Override
@@ -44,12 +48,14 @@ public class FfmpegVideoAssemblyService implements VideoAssemblyService {
             Files.createDirectories(workDir);
 
             List<Path> segments = new ArrayList<>();
+            double totalDuration = 0;
             for (Scene scene : scenes) {
                 segments.add(buildSceneSegment(job, workDir, scene));
+                totalDuration += sceneDuration(scene);
             }
 
             Path concatenated = concatenateSegments(job, workDir, segments);
-            Path finalOutput = burnSubtitles(job, workDir, concatenated, subtitlePath);
+            Path finalOutput = finalizeVideo(job, workDir, concatenated, subtitlePath, totalDuration);
 
             return GenerationResult.ok(finalOutput.toString(), Map.of("engine", "ffmpeg", "sceneCount", scenes.size()));
         } catch (AssemblyStepException e) {
@@ -59,11 +65,15 @@ public class FfmpegVideoAssemblyService implements VideoAssemblyService {
         }
     }
 
-    private Path buildSceneSegment(Job job, Path workDir, Scene scene) throws AssemblyStepException {
-        Path segmentFile = workDir.resolve(job.getId() + "-segment-" + scene.getSceneIndex() + ".mp4");
-        double duration = scene.getDurationHint() != null && scene.getDurationHint() > 0
+    private static double sceneDuration(Scene scene) {
+        return scene.getDurationHint() != null && scene.getDurationHint() > 0
                 ? scene.getDurationHint()
                 : DurationEstimator.estimateSeconds(scene.getNarrationText());
+    }
+
+    private Path buildSceneSegment(Job job, Path workDir, Scene scene) throws AssemblyStepException {
+        Path segmentFile = workDir.resolve(job.getId() + "-segment-" + scene.getSceneIndex() + ".mp4");
+        double duration = sceneDuration(scene);
 
         boolean isAnimatedClip = scene.getVisualFilePath().toLowerCase(java.util.Locale.ROOT).endsWith(".gif");
 
@@ -85,7 +95,6 @@ public class FfmpegVideoAssemblyService implements VideoAssemblyService {
                 "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black",
                 "-c:v", "libx264",
                 "-c:a", "aac",
-                "-shortest",
                 segmentFile.toString()));
 
         run(command, "assembly", "build segment for scene " + scene.getSceneIndex());
@@ -116,18 +125,34 @@ public class FfmpegVideoAssemblyService implements VideoAssemblyService {
         return concatenated;
     }
 
-    private Path burnSubtitles(Job job, Path workDir, Path concatenated, String subtitlePath) throws AssemblyStepException {
+    /**
+     * Burns in subtitles and, if configured, fades video+audio to black over the
+     * last {@code fadeOutSeconds} so the video never just cuts off mid-frame.
+     */
+    private Path finalizeVideo(Job job, Path workDir, Path concatenated, String subtitlePath, double totalDuration)
+            throws AssemblyStepException {
         Path finalOutput = workDir.resolve(job.getId() + "-final.mp4");
         String escapedSubtitlePath = subtitlePath.replace("\\", "/").replace(":", "\\:");
 
-        List<String> command = List.of(
+        StringBuilder videoFilter = new StringBuilder("subtitles='").append(escapedSubtitlePath).append('\'');
+        List<String> audioFilterArgs;
+
+        if (fadeOutSeconds > 0 && totalDuration > fadeOutSeconds) {
+            double fadeStart = totalDuration - fadeOutSeconds;
+            videoFilter.append(",fade=t=out:st=").append(fadeStart).append(":d=").append(fadeOutSeconds);
+            audioFilterArgs = List.of("-af", "afade=t=out:st=" + fadeStart + ":d=" + fadeOutSeconds);
+        } else {
+            audioFilterArgs = List.of("-c:a", "copy");
+        }
+
+        List<String> command = new ArrayList<>(List.of(
                 properties.getFfmpegExecutable(), "-y",
                 "-i", concatenated.toString(),
-                "-vf", "subtitles='" + escapedSubtitlePath + "'",
-                "-c:a", "copy",
-                finalOutput.toString());
+                "-vf", videoFilter.toString()));
+        command.addAll(audioFilterArgs);
+        command.add(finalOutput.toString());
 
-        run(command, "assembly", "burn subtitles into final video");
+        run(command, "assembly", "burn subtitles and finalize video");
         return finalOutput;
     }
 

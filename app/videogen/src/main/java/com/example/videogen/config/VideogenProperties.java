@@ -13,6 +13,7 @@ public class VideogenProperties {
     private final Visual visual = new Visual();
     private final Assembly assembly = new Assembly();
     private final Storage storage = new Storage();
+    private final Outro outro = new Outro();
 
     @Data
     public static class Llm {
@@ -28,6 +29,10 @@ public class VideogenProperties {
         private String piperModel = "";
         private String workDir = "./data/work/audio";
         private int maxAttempts = 2;
+        // piper's --length-scale: 1.0 is the voice's natural pace; higher values
+        // slow it down (e.g. 1.2 = ~20% slower). Vietnamese narration tends to be
+        // easier to follow a bit slower than the model's default pace.
+        private double lengthScale = 1.15;
     }
 
     @Data
@@ -38,16 +43,17 @@ public class VideogenProperties {
         private int timeoutSeconds = 30;
 
         // Standard SD1.5 txt2img workflow (CheckpointLoaderSimple -> KSampler ->
-        // SaveImage; no custom nodes required), prompted toward a simple flat
-        // comic/storybook illustration style rather than photorealism. A plain
-        // SD1.5 checkpoint without a motion module follows the scene's visual
-        // prompt far more faithfully than AnimateDiff did, and a still image
-        // takes ~30s on M1 Pro MPS instead of several minutes per scene.
+        // SaveImage; no custom nodes required). The base SD1.5 checkpoint handles
+        // a strong anime/manga style prompt (think Naruto/Dragon Ball) well on its
+        // own — no dedicated anime checkpoint download needed. A plain SD1.5
+        // checkpoint without a motion module follows the scene's visual prompt far
+        // more faithfully than AnimateDiff did, and a still image takes ~30s on
+        // M1 Pro MPS instead of several minutes per scene.
         private String checkpointName = "v1-5-pruned-emaonly.safetensors";
-        private String stylePrefix = "simple flat cartoon illustration, children's storybook art style, "
-                + "clean bold outlines, flat colors, minimalist background";
-        private String negativePrompt = "photorealistic, realistic, 3d render, photography, blurry, "
-                + "low quality, watermark, text, signature, extra limbs, deformed, noisy, grainy";
+        private String stylePrefix = "anime manga style illustration, like Naruto or Dragon Ball Z, "
+                + "cel shaded, bold ink outlines, vibrant anime colors, dynamic composition";
+        private String negativePrompt = "photorealistic, realistic, 3d render, photography, western comic, "
+                + "blurry, low quality, watermark, text, signature, extra limbs, deformed, noisy, grainy";
         private int imageWidth = 768;
         private int imageHeight = 512;
         private int steps = 25;
@@ -59,11 +65,33 @@ public class VideogenProperties {
     @Data
     public static class Assembly {
         private String ffmpegExecutable = "ffmpeg";
+        private String ffprobeExecutable = "ffprobe";
         private String workDir = "./data/work/assembly";
+        // After TTS, each scene's duration is corrected to the *actual* synthesized
+        // audio length (not the LLM's estimate) plus this much breathing room, so a
+        // scene never gets cut off mid-sentence or lingers oddly past the narration.
+        // Falls back to the LLM's durationHint/text-based estimate if ffprobe fails.
+        private double scenePaddingSeconds = 0.4;
+        private double minSceneSeconds = 1.5;
     }
 
     @Data
     public static class Storage {
         private String baseDir = "./data";
+    }
+
+    @Data
+    public static class Outro {
+        // Appended as an extra scene after planning so every video has a clear,
+        // deliberate ending instead of cutting off right as the last line of
+        // narration finishes.
+        private boolean enabled = true;
+        private String narrationText = "Hết.";
+        private String visualPrompt = "\"THE END\" title card, bold stylized text, simple flat "
+                + "illustration background, clean design";
+        private double durationSeconds = 2.5;
+        // Final fade-to-black applied to the whole assembled video, independent
+        // of the outro scene, so the last moment never looks like an abrupt cut.
+        private double fadeOutSeconds = 1.0;
     }
 }

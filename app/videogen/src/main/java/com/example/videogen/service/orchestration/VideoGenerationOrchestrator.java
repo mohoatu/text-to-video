@@ -1,8 +1,10 @@
 package com.example.videogen.service.orchestration;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 
 import org.slf4j.Logger;
@@ -23,6 +25,7 @@ import com.example.videogen.service.storage.StorageService;
 import com.example.videogen.service.subtitle.SubtitleService;
 import com.example.videogen.service.tts.TextToSpeechService;
 import com.example.videogen.service.visual.VisualGenerationService;
+import com.example.videogen.util.MediaDurationProbe;
 import com.example.videogen.util.RetryUtil;
 
 /**
@@ -88,8 +91,9 @@ public class VideoGenerationOrchestrator {
 
     private void runPipeline(Job job) throws Exception {
         MDC.put("stage", "planning");
-        List<Scene> scenes = withRetry("planning", properties.getLlm().getMaxAttempts(),
-                () -> scenePlanningService.plan(job));
+        List<Scene> scenes = new ArrayList<>(withRetry("planning", properties.getLlm().getMaxAttempts(),
+                () -> scenePlanningService.plan(job)));
+        appendOutroSceneIfEnabled(job, scenes);
         job.setScenes(scenes);
         log.info("Job {} planned {} scenes", job.getId(), scenes.size());
 
@@ -99,6 +103,7 @@ public class VideoGenerationOrchestrator {
                     () -> textToSpeechService.synthesize(job, scene));
             requireSuccess("tts", result, "scene " + scene.getSceneIndex());
             scene.setAudioFilePath(result.getOutputPath());
+            correctDurationFromActualAudio(scene);
         }
 
         MDC.put("stage", "visual");
@@ -121,6 +126,42 @@ public class VideoGenerationOrchestrator {
 
         job.setOutputUrl(outputUrl);
         transitionTo(job, JobStatus.COMPLETED, null, null);
+    }
+
+    /**
+     * Sets the scene's duration from the actual synthesized narration audio
+     * (plus a little breathing room) rather than the LLM's estimate, so the
+     * visual neither cuts off mid-sentence (estimate too short) nor lingers
+     * oddly on a silent frame (estimate too long). Falls back to the existing
+     * durationHint if ffprobe can't read the audio file for any reason.
+     */
+    private void correctDurationFromActualAudio(Scene scene) {
+        VideogenProperties.Assembly assembly = properties.getAssembly();
+        MediaDurationProbe.probeSeconds(assembly.getFfprobeExecutable(), scene.getAudioFilePath())
+                .ifPresent(actualSeconds -> scene.setDurationHint(
+                        Math.max(actualSeconds + assembly.getScenePaddingSeconds(), assembly.getMinSceneSeconds())));
+    }
+
+    /**
+     * Appends a short, fixed "The End" scene so every job ends on a deliberate
+     * beat instead of cutting off right as the last narration line finishes.
+     * Runs through the same pipeline (TTS, visual, subtitle, assembly) as any
+     * other scene, just with fixed content from configuration rather than the LLM.
+     */
+    private void appendOutroSceneIfEnabled(Job job, List<Scene> scenes) {
+        VideogenProperties.Outro outro = properties.getOutro();
+        if (!outro.isEnabled()) {
+            return;
+        }
+        int nextIndex = scenes.size();
+        scenes.add(Scene.builder()
+                .id(UUID.randomUUID().toString())
+                .jobId(job.getId())
+                .sceneIndex(nextIndex)
+                .narrationText(outro.getNarrationText())
+                .visualPrompt(outro.getVisualPrompt())
+                .durationHint(outro.getDurationSeconds())
+                .build());
     }
 
     private <T> T withRetry(String stage, int maxAttempts, Callable<T> action) throws Exception {
