@@ -36,6 +36,24 @@ public class VideogenProperties {
         private boolean enabled = false;
         private String workDir = "./data/work/visual";
         private int timeoutSeconds = 30;
+
+        // Standard SD1.5 txt2img workflow (CheckpointLoaderSimple -> KSampler ->
+        // SaveImage; no custom nodes required), prompted toward a simple flat
+        // comic/storybook illustration style rather than photorealism. A plain
+        // SD1.5 checkpoint without a motion module follows the scene's visual
+        // prompt far more faithfully than AnimateDiff did, and a still image
+        // takes ~30s on M1 Pro MPS instead of several minutes per scene.
+        private String checkpointName = "v1-5-pruned-emaonly.safetensors";
+        private String stylePrefix = "simple flat cartoon illustration, children's storybook art style, "
+                + "clean bold outlines, flat colors, minimalist background";
+        private String negativePrompt = "photorealistic, realistic, 3d render, photography, blurry, "
+                + "low quality, watermark, text, signature, extra limbs, deformed, noisy, grainy";
+        private int imageWidth = 768;
+        private int imageHeight = 512;
+        private int steps = 25;
+        private double cfg = 9.0;
+        private int generationTimeoutSeconds = 180;
+        private long pollIntervalMillis = 1000;
     }
 
     @Data

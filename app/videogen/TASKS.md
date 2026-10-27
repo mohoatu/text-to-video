@@ -30,9 +30,11 @@ the corresponding numbered prompt file 1:1.
   `StubTtsService` (profile `stub`) writes a placeholder file for offline runs.
 
 - [x] **07 — Visual Generation Service** (`prompts/07-visual-generation-service.md`)
-  `ComfyUiVisualGenerationService` calls a local ComfyUI instance when enabled/reachable,
-  otherwise (and on any failure) falls back to a generated placeholder image
-  (`PlaceholderAssetGenerator`). `StubVisualGenerationService` always uses the placeholder.
+  `ComfyUiVisualGenerationService` submits a standard SD1.5 txt2img workflow to a local ComfyUI
+  instance when enabled/reachable (prompted toward a simple flat comic/storybook illustration
+  style — see "Running the full local stack" below), otherwise (and on any failure) falls back
+  to a generated placeholder image (`PlaceholderAssetGenerator`). `StubVisualGenerationService`
+  always uses the placeholder.
 
 - [x] **08 — Subtitle Service** (`prompts/08-subtitle-service.md`)
   `SrtSubtitleService` builds a standard `.srt` file with cumulative scene timing
@@ -142,35 +144,51 @@ brew install homebrew-ffmpeg/ffmpeg/ffmpeg   # may compile from source (~a few m
 ffmpeg -filters | grep -i subtitle           # sanity check: should list `subtitles` and `ass`
 ```
 
-### 4. Visual/video generation — ComfyUI + AnimateDiff (optional)
-The MVP falls back to a placeholder still image per scene (`videogen.visual.enabled=false`) and
-works fully without this. To get real generated motion instead:
+### 4. Visual generation — ComfyUI, simple comic-style stills (optional)
+The MVP falls back to a plain placeholder image per scene (`videogen.visual.enabled=false`) and
+works fully without this.
+
 ```bash
 git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git ~/videogen-local-stack/ComfyUI
-git clone --depth 1 https://github.com/ArtVentureX/comfyui-animatediff.git \
-  ~/videogen-local-stack/ComfyUI/custom_nodes/comfyui-animatediff
 
 python3.12 -m venv ~/videogen-local-stack/ComfyUI/venv
 source ~/videogen-local-stack/ComfyUI/venv/bin/activate
 pip install torch torchvision torchaudio   # MPS-accelerated build on Apple Silicon, confirmed
 pip install -r ~/videogen-local-stack/ComfyUI/requirements.txt
-pip install opencv-python                  # comfyui-animatediff's own requirement
 
 mkdir -p ~/videogen-local-stack/ComfyUI/models/checkpoints
 curl -L -o ~/videogen-local-stack/ComfyUI/models/checkpoints/v1-5-pruned-emaonly.safetensors \
   https://huggingface.co/Comfy-Org/stable-diffusion-v1-5-archive/resolve/main/v1-5-pruned-emaonly.safetensors
-curl -L -o ~/videogen-local-stack/ComfyUI/custom_nodes/comfyui-animatediff/models/mm_sd_v15_v2.ckpt \
-  https://huggingface.co/guoyww/animatediff/resolve/main/mm_sd_v15_v2.ckpt
 
 # start it:
 ~/videogen-local-stack/ComfyUI/venv/bin/python ~/videogen-local-stack/ComfyUI/main.py --listen 127.0.0.1
 ```
-Then set `videogen.visual.enabled=true` in `application.properties`. Note: `ComfyUiVisualGenerationService`
-still only *establishes connectivity* to ComfyUI as of this writing — it does not yet submit the
-AnimateDiff workflow graph itself (see the code comment in `callComfyUi()`); wiring the actual
-API-format workflow (checkpoint → CLIPTextEncode → AnimateDiffSampler → AnimateDiffCombine as
-GIF, which `FfmpegVideoAssemblyService` would then need to accept as a scene visual alongside
-still images) is the remaining piece to get real generated video instead of the placeholder.
+Then set `videogen.visual.enabled=true` in `application.properties`.
+
+`ComfyUiVisualGenerationService` submits a standard SD1.5 txt2img workflow (`CheckpointLoaderSimple
+-> CLIPTextEncode -> KSampler -> VAEDecode -> SaveImage`; **no custom nodes needed**), polls
+`/history/{promptId}`, and downloads the resulting PNG via `/view`. The scene's `visualPrompt` is
+wrapped with `videogen.visual.style-prefix` ("simple flat cartoon illustration, children's
+storybook art style, clean bold outlines, flat colors, minimalist background" by default) so
+output stays a simple comic/storybook illustration rather than attempting photorealism. Takes
+~30s/scene on M1 Pro MPS.
+
+**An earlier version of this used ComfyUI's AnimateDiff custom node for real generated motion
+(short animated clips instead of stills).** It worked (after patching a real MPS device-placement
+bug in `comfyui-animatediff`'s `AnimateDiffSampler` — the motion module's weights never got moved
+off the CPU offload device, see git history), but ran ~6-7 minutes *per scene* and the generated
+content routinely didn't match the prompt (e.g. "Hạ Long Bay" produced wicker baskets and a person
+on a motorbike). It was replaced by the still-image approach above, which is ~12x faster and far
+more prompt-faithful. `FfmpegVideoAssemblyService` still has a code path for an animated `.gif`
+scene visual (`-stream_loop -1`) if AnimateDiff generation is ever reintroduced.
+
+**Scene visual prompts are generated in English, even though everything else (narration, subtitles)
+is Vietnamese.** SD1.5's CLIP text encoder is trained overwhelmingly on English; sending it Vietnamese
+prompts produced poorly-matched, sometimes unrelated images. `OllamaScenePlanningService`'s system
+prompt now explicitly instructs the model to write `visualPrompt` in concise, concrete English
+(narrationText stays Vietnamese) — this alone fixed most of the content-mismatch problem. The
+placeholder-fallback caption (`PlaceholderAssetGenerator`) uses `narrationText`, not `visualPrompt`,
+so it still displays Vietnamese.
 
 ### Gotcha: this connection was heavily bandwidth-constrained
 Hugging Face downloads repeatedly stalled/dropped over HTTP/2 (`curl: (92) HTTP/2 stream ... was

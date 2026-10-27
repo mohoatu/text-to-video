@@ -20,7 +20,9 @@ import com.example.videogen.util.DurationEstimator;
 
 /**
  * Builds the final MP4 using the ffmpeg CLI:
- * 1) turn each scene's still image + narration audio into a fixed-duration segment,
+ * 1) turn each scene's visual (a still image, or an animated .gif from
+ *    ComfyUI/AnimateDiff, looped as needed) + narration audio into a
+ *    fixed-duration segment,
  * 2) concatenate the segments in scene order,
  * 3) burn the SRT subtitle file into the concatenated video.
  * Requires the ffmpeg binary to be installed and on PATH (or configured explicitly).
@@ -63,17 +65,28 @@ public class FfmpegVideoAssemblyService implements VideoAssemblyService {
                 ? scene.getDurationHint()
                 : DurationEstimator.estimateSeconds(scene.getNarrationText());
 
-        List<String> command = List.of(
-                properties.getFfmpegExecutable(), "-y",
-                "-loop", "1", "-i", scene.getVisualFilePath(),
+        boolean isAnimatedClip = scene.getVisualFilePath().toLowerCase(java.util.Locale.ROOT).endsWith(".gif");
+
+        List<String> visualInputArgs = isAnimatedClip
+                // Animated clips (e.g. a ~2s AnimateDiff gif) are usually shorter than the
+                // scene duration, so loop them indefinitely and let -t below trim to length.
+                ? List.of("-stream_loop", "-1", "-i", scene.getVisualFilePath())
+                // A still image has no inherent duration, so hold it on a single looped frame.
+                : List.of("-loop", "1", "-i", scene.getVisualFilePath());
+
+        List<String> command = new ArrayList<>();
+        command.add(properties.getFfmpegExecutable());
+        command.add("-y");
+        command.addAll(visualInputArgs);
+        command.addAll(List.of(
                 "-i", scene.getAudioFilePath(),
                 "-t", String.valueOf(duration),
                 "-pix_fmt", "yuv420p",
-                "-vf", "scale=1280:720",
+                "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black",
                 "-c:v", "libx264",
                 "-c:a", "aac",
                 "-shortest",
-                segmentFile.toString());
+                segmentFile.toString()));
 
         run(command, "assembly", "build segment for scene " + scene.getSceneIndex());
         return segmentFile;

@@ -23,10 +23,19 @@ public class OllamaScenePlanningService implements ScenePlanningService {
 
     private static final String SYSTEM_PROMPT = """
             Bạn là một đạo diễn kịch bản video ngắn tiếng Việt.
-            Nhiệm vụ: chia nội dung người dùng cung cấp thành 3 đến 6 phân cảnh (scene) ngắn,
-            mỗi phân cảnh có lời đọc (narrationText) tự nhiên, đúng ngữ pháp tiếng Việt,
-            và mô tả hình ảnh minh họa (visualPrompt) bằng tiếng Việt cho phân cảnh đó.
-            Ước tính thời lượng đọc (durationHint) tính bằng giây cho mỗi phân cảnh.
+            Nhiệm vụ: chia nội dung người dùng cung cấp thành 3 đến 6 phân cảnh (scene) ngắn.
+
+            Mỗi phân cảnh gồm:
+            - narrationText: lời đọc bằng tiếng Việt, tự nhiên, đúng ngữ pháp.
+            - visualPrompt: mô tả hình ảnh minh họa cho phân cảnh, BẮT BUỘC viết bằng
+              TIẾNG ANH (vì sẽ được đưa thẳng vào một mô hình sinh ảnh chỉ hiểu tiếng Anh
+              tốt). Mô tả phải CỤ THỂ, TRỰC QUAN: liệt kê các đối tượng, nhân vật, hành
+              động, bối cảnh có thể vẽ được — tránh khái niệm trừu tượng (ví dụ: không viết
+              "chứng minh sự trong sạch", hãy viết cụ thể nhân vật đang làm gì, đứng ở đâu,
+              trông như thế nào). Dùng dạng liệt kê ngắn gọn, phân tách bằng dấu phẩy, tối đa
+              khoảng 20 từ. Ví dụ: "a poor young man standing by a river holding a glowing
+              gem, small wooden village houses in the background, daytime".
+            - durationHint: thời lượng đọc ước tính, tính bằng giây.
             """;
 
     /**

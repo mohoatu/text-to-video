@@ -31,7 +31,7 @@ public class StubVisualGenerationService implements VisualGenerationService {
         try {
             Path outputFile = Path.of(properties.getWorkDir(),
                     job.getId() + "-scene-" + scene.getSceneIndex() + ".png");
-            PlaceholderAssetGenerator.generatePlaceholderImage(outputFile, scene.getVisualPrompt());
+            PlaceholderAssetGenerator.generatePlaceholderImage(outputFile, scene.getNarrationText());
             return GenerationResult.ok(outputFile.toString(), Map.of("engine", "stub"));
         } catch (Exception e) {
             return GenerationResult.failure("Stub visual generation failed: " + e.getMessage());
