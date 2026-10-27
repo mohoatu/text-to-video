@@ -20,13 +20,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * Generates a simple flat-illustration still image per scene using a local
- * ComfyUI instance running a standard Stable Diffusion txt2img workflow
+ * Generates an illustration still image per scene using a local ComfyUI
+ * instance running a standard Stable Diffusion txt2img workflow
  * (CheckpointLoaderSimple -> KSampler -> SaveImage; no custom nodes). The
- * scene's visual prompt is wrapped with a comic/storybook style prefix so
- * output stays illustrative rather than attempting (and usually failing at)
- * photorealism. Any failure (disabled, unreachable, workflow error, timeout)
- * falls back to a plain placeholder image so the rest of the pipeline still runs.
+ * scene's visual prompt is wrapped with a drawing-style prefix (see
+ * {@link VisualStylePreset} — resolved from the job's styleHint, i.e. the
+ * "style" field on the create-job request, falling back to the configured
+ * default) so output stays illustrative rather than attempting (and usually
+ * failing at) photorealism. Any failure (disabled, unreachable, workflow
+ * error, timeout) falls back to a plain placeholder image so the rest of the
+ * pipeline still runs.
  */
 @Service
 @Profile("!stub")
@@ -60,7 +63,7 @@ public class ComfyUiVisualGenerationService implements VisualGenerationService {
     }
 
     private GenerationResult callComfyUi(Job job, Scene scene) throws Exception {
-        Map<String, Object> workflow = buildTxt2ImgWorkflow(scene.getVisualPrompt());
+        Map<String, Object> workflow = buildTxt2ImgWorkflow(scene.getVisualPrompt(), job.getStyleHint());
 
         String submitResponse = comfyUiClient.submitPrompt(workflow);
         JsonNode submitNode = objectMapper.readTree(submitResponse);
@@ -85,9 +88,10 @@ public class ComfyUiVisualGenerationService implements VisualGenerationService {
         return GenerationResult.ok(destination.toString(), Map.of("engine", "comfyui-sd15", "promptId", promptId));
     }
 
-    private Map<String, Object> buildTxt2ImgWorkflow(String visualPrompt) {
+    private Map<String, Object> buildTxt2ImgWorkflow(String visualPrompt, String styleHint) {
         long seed = ThreadLocalRandom.current().nextLong(0, Long.MAX_VALUE);
-        String positivePrompt = properties.getStylePrefix() + ", " + visualPrompt;
+        VisualStylePreset.Resolved style = VisualStylePreset.resolve(styleHint, properties);
+        String positivePrompt = style.stylePrefix() + ", " + visualPrompt;
 
         return Map.of(
                 "4", Map.of(
@@ -98,7 +102,7 @@ public class ComfyUiVisualGenerationService implements VisualGenerationService {
                         "inputs", Map.of("text", positivePrompt, "clip", java.util.List.of("4", 1))),
                 "7", Map.of(
                         "class_type", "CLIPTextEncode",
-                        "inputs", Map.of("text", properties.getNegativePrompt(), "clip", java.util.List.of("4", 1))),
+                        "inputs", Map.of("text", style.negativePrompt(), "clip", java.util.List.of("4", 1))),
                 "20", Map.of(
                         "class_type", "EmptyLatentImage",
                         "inputs", Map.of(

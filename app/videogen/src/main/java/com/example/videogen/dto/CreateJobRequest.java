@@ -16,10 +16,22 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class CreateJobRequest {
 
+    /**
+     * A short topic/prompt, or a full long-form document/article — scene count
+     * adapts to the content's length (see videogen.llm.min-scenes/max-scenes).
+     * For file-based input (a single long document, or a "folder" of text
+     * files) use POST /api/jobs/upload instead, which builds this field for
+     * you from the uploaded file(s).
+     */
     @NotBlank(message = "prompt must not be blank")
-    @Size(max = 2000, message = "prompt must be at most 2000 characters")
+    @Size(max = 50_000, message = "prompt must be at most 50000 characters")
     private String prompt;
 
+    /**
+     * Drawing style for scene visuals: a preset key ("anime", "flat-comic",
+     * "ink-wash"), a free-form English style description, or left blank to use
+     * the configured default. See {@link com.example.videogen.service.visual.VisualStylePreset}.
+     */
     private String style;
 
     @Min(value = 5, message = "durationTargetSeconds must be at least 5")

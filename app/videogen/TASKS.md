@@ -8,7 +8,9 @@ the corresponding numbered prompt file 1:1.
   Spring Boot 3.3.3 / Java 21 app, `/health` endpoint, package skeleton.
 
 - [x] **02 — API Layer** (`prompts/02-api-layer.md`)
-  `VideoJobController`: `POST /api/jobs`, `GET /api/jobs/{id}`, `GET /api/jobs/{id}/output`.
+  `VideoJobController`: `POST /api/jobs`, `POST /api/jobs/upload` (one or more .txt files,
+  e.g. a long document or a "folder" of chapter files — see "Long documents and drawing
+  style" below), `GET /api/jobs/{id}`, `GET /api/jobs/{id}/output`.
   `CreateJobRequest`/`JobResponse`/`JobOutputResponse` DTOs with bean validation,
   `GlobalExceptionHandler` for 400/404/409/500.
 
@@ -214,6 +216,42 @@ so it still displays Vietnamese.
   there came through as mojibake (`Háº¿t.`) at runtime. Put Vietnamese defaults in Java source
   (compiled as UTF-8) instead, as `VideogenProperties.Outro.narrationText`'s default does, or move
   the file to `application.yml` if it ever needs to be a property override.
+
+### 6. Drawing style per request, and long-document input
+Two request-time parameters added on the `feature/style-presets-and-long-input` branch:
+
+**Drawing style** (`style` field on `POST /api/jobs`, or `style` form param on
+`POST /api/jobs/upload`): resolved per-job by `VisualStylePreset.resolve()` instead of only being
+a global default in `application.properties`. Recognizes preset keys (case-insensitive, with a few
+aliases — see `VisualStylePreset`):
+- `anime` — Naruto/Dragon Ball Z-esque (the configured global default)
+- `flat-comic` — the earlier simple flat storybook style
+- `ink-wash` (aliases `thuy-mac`, `sumi-e`) — traditional monochrome ink wash painting, as few
+  brush strokes as possible, generous negative space; its negative prompt also excludes color
+  since real thủy mặc is monochrome. Verified against real generated output: a fisherman-in-a-boat
+  test scene and a full 10-scene story both rendered as genuinely legible, elegant ink wash art —
+  simple but immediately readable, exactly the brief ("đơn giản càng tốt... nhưng nhìn vào là hiểu
+  được nội dung").
+Anything else is treated as a free-form custom style prompt fragment, passed straight through —
+so the "parameter can change the style" requirement is satisfied for arbitrary styles too, not
+just the three built-in presets.
+
+**Long-document input**: `CreateJobRequest.prompt`'s limit was raised from 2000 to 50,000
+characters, and `POST /api/jobs/upload` (multipart, one or more `files` parts) reads and
+concatenates uploaded `.txt` files — in filename order, each preceded by a `## filename` heading
+— into that same prompt field, for a long article or a "folder" of chapter files uploaded
+together. Three things had to change to make a long document actually work end-to-end, not just
+be accepted:
+- `OllamaClient` now passes `options.num_ctx` (default 8192, configurable via
+  `videogen.llm.context-length`) — without it Ollama silently truncates long input at its default
+  context window.
+- `OllamaScenePlanningService`'s system prompt no longer hardcodes "3 to 6 scenes"; it instructs
+  the model to use one scene per main idea/paragraph, bounded by `videogen.llm.min-scenes`/
+  `max-scenes` (3/20 default), and the JSON Schema's `minItems`/`maxItems` enforce the same bound
+  structurally. Verified against a 222-word Vietnamese folk-story paragraph: correctly split into
+  10 sequential scenes covering the full narrative arc in order, no content skipped or invented.
+- `videogen.llm.timeout-seconds` default raised (60 -> 180) since a long document takes the 14B
+  model longer to plan than a one-line prompt.
 
 ### Gotcha: this connection was heavily bandwidth-constrained
 Hugging Face downloads repeatedly stalled/dropped over HTTP/2 (`curl: (92) HTTP/2 stream ... was

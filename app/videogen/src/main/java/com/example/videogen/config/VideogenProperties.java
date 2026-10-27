@@ -19,8 +19,18 @@ public class VideogenProperties {
     public static class Llm {
         private String ollamaBaseUrl = "http://localhost:11434";
         private String ollamaModel = "qwen2.5:7b";
-        private int timeoutSeconds = 60;
+        private int timeoutSeconds = 180;
         private int maxAttempts = 2;
+        // Ollama's context window (num_ctx) for the planning call. The default
+        // model-level context is often too small for a long source document
+        // (a full paragraph/article), so this is set generously; qwen2.5:14b
+        // supports up to 32768 natively.
+        private int contextLength = 8192;
+        // Scene count is adaptive to the input's length rather than fixed, bounded
+        // by these so a very long document doesn't produce an unbounded number of
+        // scenes (each costs real TTS + visual generation time).
+        private int minScenes = 3;
+        private int maxScenes = 20;
     }
 
     @Data
