@@ -1,0 +1,14 @@
+target/
+*.class
+*.log
+.DS_Store
+.idea/
+*.iml
+.vscode/
+
+# Runtime pipeline output/work directories (videogen)
+app/videogen/data/
+app/videogen/data-stub/
+
+# Downloaded model weights (large binaries; see TASKS.md for how to fetch them)
+app/videogen/models/
