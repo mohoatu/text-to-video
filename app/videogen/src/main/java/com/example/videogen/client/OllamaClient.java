@@ -59,7 +59,11 @@ public class OllamaClient {
                 "system", systemPrompt,
                 "prompt", userPrompt,
                 "stream", false,
-                "format", formatSchema
+                "format", formatSchema,
+                // Without this, Ollama falls back to a small default context window
+                // that silently truncates long source documents before the model
+                // ever sees the end of them.
+                "options", Map.of("num_ctx", properties.getContextLength())
         );
 
         String rawResponse = restClient.post()

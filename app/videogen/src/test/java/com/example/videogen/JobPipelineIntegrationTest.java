@@ -2,14 +2,18 @@ package com.example.videogen;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -47,7 +51,10 @@ class JobPipelineIntegrationTest {
 
         JsonNode created = objectMapper.readTree(createResult.getResponse().getContentAsString());
         String jobId = created.get("id").asText();
-        assertThat(created.get("status").asText()).isEqualTo(JobStatus.PENDING.name());
+        // The background worker can pick the job up (PENDING -> PROCESSING) before this
+        // assertion runs, especially with the fast stub pipeline — either is a valid
+        // snapshot of a job that was *just* created.
+        assertThat(created.get("status").asText()).isIn(JobStatus.PENDING.name(), JobStatus.PROCESSING.name());
 
         JsonNode finalJob = pollUntilTerminal(jobId);
 
@@ -57,6 +64,41 @@ class JobPipelineIntegrationTest {
 
         mockMvc.perform(get("/api/jobs/{id}/output", jobId))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void createJobFromUploadedFilesRunsThroughStubPipelineToCompletion() throws Exception {
+        MockMultipartFile part1 = new MockMultipartFile("files", "01-intro.txt", "text/plain",
+                "Ho Guom la mot ho nuoc noi tieng o Ha Noi.".getBytes(StandardCharsets.UTF_8));
+        MockMultipartFile part2 = new MockMultipartFile("files", "02-detail.txt", "text/plain",
+                "Vao buoi sang co rat nhieu nguoi tap the duc quanh ho.".getBytes(StandardCharsets.UTF_8));
+
+        MvcResult createResult = mockMvc.perform(multipart("/api/jobs/upload")
+                        .file(part1)
+                        .file(part2)
+                        .param("style", "ink-wash"))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        JsonNode created = objectMapper.readTree(createResult.getResponse().getContentAsString());
+        String jobId = created.get("id").asText();
+        assertThat(created.get("status").asText()).isIn(JobStatus.PENDING.name(), JobStatus.PROCESSING.name());
+        // Both files' content should have been combined into the job's prompt.
+        assertThat(created.get("prompt").asText()).contains("Ho Guom").contains("tap the duc");
+
+        JsonNode finalJob = pollUntilTerminal(jobId);
+
+        assertThat(finalJob.get("status").asText())
+                .as("job errorMessage: %s", finalJob.path("errorMessage").asText(null))
+                .isEqualTo(JobStatus.COMPLETED.name());
+    }
+
+    @Test
+    void uploadEndpointRejectsEmptyFiles() throws Exception {
+        MockMultipartFile empty = new MockMultipartFile("files", "empty.txt", "text/plain", new byte[0]);
+
+        mockMvc.perform(multipart("/api/jobs/upload").file(empty))
+                .andExpect(status().isBadRequest());
     }
 
     private JsonNode pollUntilTerminal(String jobId) throws Exception {

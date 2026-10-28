@@ -1,0 +1,87 @@
+# Full local stack: the videogen app, Ollama (LLM), and ComfyUI (visuals).
+#
+# First-time setup (one-off, after `docker compose up -d`):
+#   docker compose exec ollama ollama pull qwen2.5:14b
+#   docker compose run --rm comfyui-checkpoint-setup
+#
+# GPU acceleration: Ollama and ComfyUI both run much faster with a GPU; the
+# comfyui image auto-detects whether a usable NVIDIA GPU is present and falls
+# back to --cpu mode if not, so `docker compose up` works either way (just
+# slowly without a GPU: expect minutes rather than ~30s per generated image).
+# - Linux + NVIDIA: install the NVIDIA Container Toolkit and uncomment the
+#   `deploy.resources.reservations.devices` block on each service below.
+# - Apple Silicon: Docker Desktop cannot pass through Metal/MPS to a
+#   container at all. For GPU speed on a Mac, run Ollama/ComfyUI natively on
+#   the host instead (see app/videogen/TASKS.md) and point the app at them
+#   via VIDEOGEN_LLM_OLLAMA_BASE_URL / VIDEOGEN_VISUAL_COMFYUI_BASE_URL
+#   pointed at http://host.docker.internal:<port>, leaving those two
+#   services out of `docker compose up`.
+services:
+  app:
+    build:
+      context: ./app/videogen
+    ports:
+      - "8080:8080"
+    environment:
+      VIDEOGEN_LLM_OLLAMA_BASE_URL: http://ollama:11434
+      VIDEOGEN_VISUAL_COMFYUI_BASE_URL: http://comfyui:8188
+      VIDEOGEN_VISUAL_ENABLED: "true"
+    volumes:
+      # The Vietnamese piper voice model — see app/videogen/TASKS.md for how
+      # to download it; it is not baked into the image.
+      - ./app/videogen/models:/app/models
+      - videogen-data:/app/data
+    depends_on:
+      - ollama
+      - comfyui
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  comfyui:
+    build:
+      context: ./docker/comfyui
+    ports:
+      - "8188:8188"
+    volumes:
+      - comfyui-models:/opt/comfyui/models
+      - comfyui-output:/opt/comfyui/output
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # One-shot helper: `docker compose run --rm comfyui-checkpoint-setup`
+  # downloads the default SD1.5 checkpoint into the comfyui-models volume.
+  # Not started by `docker compose up` (profile gates it out by default).
+  comfyui-checkpoint-setup:
+    image: curlimages/curl:latest
+    profiles: ["setup"]
+    volumes:
+      - comfyui-models:/models
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        mkdir -p /models/checkpoints &&
+        curl -L -o /models/checkpoints/v1-5-pruned-emaonly.safetensors
+        https://huggingface.co/Comfy-Org/stable-diffusion-v1-5-archive/resolve/main/v1-5-pruned-emaonly.safetensors
+
+volumes:
+  videogen-data:
+  ollama-models:
+  comfyui-models:
+  comfyui-output:

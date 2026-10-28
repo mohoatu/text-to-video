@@ -19,8 +19,18 @@ public class VideogenProperties {
     public static class Llm {
         private String ollamaBaseUrl = "http://localhost:11434";
         private String ollamaModel = "qwen2.5:7b";
-        private int timeoutSeconds = 60;
+        private int timeoutSeconds = 180;
         private int maxAttempts = 2;
+        // Ollama's context window (num_ctx) for the planning call. The default
+        // model-level context is often too small for a long source document
+        // (a full paragraph/article), so this is set generously; qwen2.5:14b
+        // supports up to 32768 natively.
+        private int contextLength = 8192;
+        // Scene count is adaptive to the input's length rather than fixed, bounded
+        // by these so a very long document doesn't produce an unbounded number of
+        // scenes (each costs real TTS + visual generation time).
+        private int minScenes = 3;
+        private int maxScenes = 20;
     }
 
     @Data
@@ -43,17 +53,24 @@ public class VideogenProperties {
         private int timeoutSeconds = 30;
 
         // Standard SD1.5 txt2img workflow (CheckpointLoaderSimple -> KSampler ->
-        // SaveImage; no custom nodes required). The base SD1.5 checkpoint handles
-        // a strong anime/manga style prompt (think Naruto/Dragon Ball) well on its
-        // own — no dedicated anime checkpoint download needed. A plain SD1.5
-        // checkpoint without a motion module follows the scene's visual prompt far
-        // more faithfully than AnimateDiff did, and a still image takes ~30s on
-        // M1 Pro MPS instead of several minutes per scene.
+        // SaveImage; no custom nodes required). Default style is traditional ink
+        // wash (thuy mac/sumi-e) — see VisualStylePreset.INK_WASH, which this
+        // mirrors: as simple/minimal as possible while staying immediately
+        // legible. A job can override this per request via the "style" field
+        // (preset key or free-form text); see VisualStylePreset. A plain SD1.5
+        // checkpoint without a motion module follows the scene's visual prompt
+        // far more faithfully than AnimateDiff did, and a still image takes
+        // ~30s on M1 Pro MPS instead of several minutes per scene.
         private String checkpointName = "v1-5-pruned-emaonly.safetensors";
-        private String stylePrefix = "anime manga style illustration, like Naruto or Dragon Ball Z, "
-                + "cel shaded, bold ink outlines, vibrant anime colors, dynamic composition";
-        private String negativePrompt = "photorealistic, realistic, 3d render, photography, western comic, "
-                + "blurry, low quality, watermark, text, signature, extra limbs, deformed, noisy, grainy";
+        private String stylePrefix = "traditional East Asian ink wash painting, thuy mac sumi-e style, "
+                + "monochrome black ink on plain paper background, minimalist, as few brush strokes as "
+                + "possible, simple bold expressive linework, figures reduced to simple silhouettes, "
+                + "clear single focal subject, generous negative space, clean uncluttered composition, "
+                + "easy to recognize at a glance";
+        private String negativePrompt = "colorful, vibrant colors, multiple colors, bright colors, gradient, "
+                + "busy background, cluttered, intricate detail, photorealistic, realistic, 3d render, "
+                + "photography, western comic, blurry, low quality, watermark, text, signature, extra limbs, "
+                + "deformed, noisy, grainy";
         private int imageWidth = 768;
         private int imageHeight = 512;
         private int steps = 25;

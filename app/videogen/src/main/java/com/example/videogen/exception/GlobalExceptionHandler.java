@@ -9,8 +9,12 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 import com.example.videogen.dto.ErrorResponse;
+
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -31,6 +35,24 @@ public class GlobalExceptionHandler {
                 .map(FieldError::getDefaultMessage)
                 .toList();
         return build(HttpStatus.BAD_REQUEST, "Validation failed", details);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex) {
+        List<String> details = ex.getConstraintViolations().stream()
+                .map(ConstraintViolation::getMessage)
+                .toList();
+        return build(HttpStatus.BAD_REQUEST, "Validation failed", details);
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ErrorResponse> handleMissingPart(MissingServletRequestPartException ex) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), null);
+    }
+
+    @ExceptionHandler({IllegalArgumentException.class, java.io.UncheckedIOException.class})
+    public ResponseEntity<ErrorResponse> handleBadUpload(RuntimeException ex) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), null);
     }
 
     @ExceptionHandler(Exception.class)
