@@ -170,12 +170,10 @@ Then set `videogen.visual.enabled=true` in `application.properties`.
 `ComfyUiVisualGenerationService` submits a standard SD1.5 txt2img workflow (`CheckpointLoaderSimple
 -> CLIPTextEncode -> KSampler -> VAEDecode -> SaveImage`; **no custom nodes needed**), polls
 `/history/{promptId}`, and downloads the resulting PNG via `/view`. The scene's `visualPrompt` is
-wrapped with `videogen.visual.style-prefix` (default: an anime/manga illustration style — "like
-Naruto or Dragon Ball Z, cel shaded, bold ink outlines, vibrant anime colors" — the base SD1.5
-checkpoint handles this surprisingly well with no dedicated anime checkpoint needed; swap the
-prefix for something like "simple flat cartoon illustration, children's storybook art style" for
-a softer look instead) so output stays illustrative rather than attempting photorealism. Takes
-~30s/scene on M1 Pro MPS.
+wrapped with `videogen.visual.style-prefix` (default: traditional ink wash / thủy mặc — see
+section 6 below; the base SD1.5 checkpoint also handles anime/manga and flat-storybook style
+prompts well with no dedicated style checkpoint needed) so output stays illustrative rather than
+attempting photorealism. Takes ~30s/scene on M1 Pro MPS.
 
 **An earlier version of this used ComfyUI's AnimateDiff custom node for real generated motion
 (short animated clips instead of stills).** It worked (after patching a real MPS device-placement
@@ -224,14 +222,14 @@ Two request-time parameters added on the `feature/style-presets-and-long-input` 
 `POST /api/jobs/upload`): resolved per-job by `VisualStylePreset.resolve()` instead of only being
 a global default in `application.properties`. Recognizes preset keys (case-insensitive, with a few
 aliases — see `VisualStylePreset`):
-- `anime` — Naruto/Dragon Ball Z-esque (the configured global default)
-- `flat-comic` — the earlier simple flat storybook style
-- `ink-wash` (aliases `thuy-mac`, `sumi-e`) — traditional monochrome ink wash painting, as few
-  brush strokes as possible, generous negative space; its negative prompt also excludes color
-  since real thủy mặc is monochrome. Verified against real generated output: a fisherman-in-a-boat
-  test scene and a full 10-scene story both rendered as genuinely legible, elegant ink wash art —
-  simple but immediately readable, exactly the brief ("đơn giản càng tốt... nhưng nhìn vào là hiểu
-  được nội dung").
+- `ink-wash` (aliases `thuy-mac`, `sumi-e`) — **the configured global default.** Traditional
+  monochrome ink wash painting, as few brush strokes as possible, generous negative space; its
+  negative prompt also excludes color since real thủy mặc is monochrome. Verified against real
+  generated output: a fisherman-in-a-boat test scene and a full 10-scene story both rendered as
+  genuinely legible, elegant ink wash art — simple but immediately readable, exactly the brief
+  ("đơn giản càng tốt... nhưng nhìn vào là hiểu được nội dung").
+- `anime` — Naruto/Dragon Ball Z-esque
+- `flat-comic` — the simple flat storybook style used before ink-wash became the default
 Anything else is treated as a free-form custom style prompt fragment, passed straight through —
 so the "parameter can change the style" requirement is satisfied for arbitrary styles too, not
 just the three built-in presets.
@@ -252,6 +250,27 @@ be accepted:
   10 sequential scenes covering the full narrative arc in order, no content skipped or invented.
 - `videogen.llm.timeout-seconds` default raised (60 -> 180) since a long document takes the 14B
   model longer to plan than a one-line prompt.
+
+### 7. Docker deployment
+`Dockerfile` (multi-stage: Maven build, then `eclipse-temurin:21-jre` runtime) bundles ffmpeg and
+piper-tts directly into the app image, since both are invoked as subprocesses (`ProcessBuilder`)
+rather than over the network — they have to live wherever the JVM runs. Ollama and ComfyUI are
+reached over HTTP, so they're separate images/services (`docker-compose.yml`; ComfyUI's is
+`docker/comfyui/Dockerfile`) that can equally well be swapped for native host processes via
+`VIDEOGEN_LLM_OLLAMA_BASE_URL`/`VIDEOGEN_VISUAL_COMFYUI_BASE_URL`.
+
+Two things verified by actually building and running these images (via Colima, since Docker wasn't
+otherwise installed) rather than just writing them:
+- **Debian's `ffmpeg` apt package includes `libass` (subtitle support) by default** — confirmed
+  via `apt-get install ffmpeg` pulling in `libass9` automatically, and `ffmpeg -filters` listing
+  `subtitles`/`ass` inside the built image. This is the opposite of Homebrew's default `ffmpeg`
+  formula on macOS (see the gotcha in section 3 above) — nothing extra needed in the Dockerfile.
+- **ComfyUI's image crashes outright on a host with no NVIDIA driver at all**, not just runs
+  slowly: `pip install torch` pulls the CUDA-enabled build, and `torch.cuda.current_device()`
+  raises (rather than returning something falsy) when no driver is present, which ComfyUI's
+  startup path calls unconditionally. `docker/comfyui/entrypoint.sh` detects GPU availability via
+  the safe `torch.cuda.is_available()` and adds `--cpu` only when needed, so the same image works
+  (just slowly) on a CPU-only host instead of failing to start.
 
 ### Gotcha: this connection was heavily bandwidth-constrained
 Hugging Face downloads repeatedly stalled/dropped over HTTP/2 (`curl: (92) HTTP/2 stream ... was

@@ -1,0 +1,7 @@
+target/
+data/
+data-stub/
+models/
+*.log
+.idea/
+*.iml

@@ -51,7 +51,10 @@ class JobPipelineIntegrationTest {
 
         JsonNode created = objectMapper.readTree(createResult.getResponse().getContentAsString());
         String jobId = created.get("id").asText();
-        assertThat(created.get("status").asText()).isEqualTo(JobStatus.PENDING.name());
+        // The background worker can pick the job up (PENDING -> PROCESSING) before this
+        // assertion runs, especially with the fast stub pipeline — either is a valid
+        // snapshot of a job that was *just* created.
+        assertThat(created.get("status").asText()).isIn(JobStatus.PENDING.name(), JobStatus.PROCESSING.name());
 
         JsonNode finalJob = pollUntilTerminal(jobId);
 
@@ -79,7 +82,7 @@ class JobPipelineIntegrationTest {
 
         JsonNode created = objectMapper.readTree(createResult.getResponse().getContentAsString());
         String jobId = created.get("id").asText();
-        assertThat(created.get("status").asText()).isEqualTo(JobStatus.PENDING.name());
+        assertThat(created.get("status").asText()).isIn(JobStatus.PENDING.name(), JobStatus.PROCESSING.name());
         // Both files' content should have been combined into the job's prompt.
         assertThat(created.get("prompt").asText()).contains("Ho Guom").contains("tap the duc");
 

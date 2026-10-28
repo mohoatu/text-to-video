@@ -1,10 +1,7 @@
-# Application Implementation Workspace
+# app/
 
-This folder is reserved for the actual implementation of the text-to-video platform.
+Contains `videogen/`, the Spring Boot implementation of the text-to-video platform.
 
-Planned contents:
-- backend services
-- API layer
-- worker processes
-- local AI integration modules
-- media processing pipeline
+See the [repository root README](../README.md) for what it does and how to run it (Docker or
+native), and [`videogen/TASKS.md`](videogen/TASKS.md) for implementation details, native local-AI
+stack setup, and configuration reference.
